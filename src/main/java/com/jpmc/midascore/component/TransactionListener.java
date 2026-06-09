@@ -1,6 +1,7 @@
 package com.jpmc.midascore.component;
 
 import com.jpmc.midascore.foundation.Transaction;
+import com.jpmc.midascore.foundation.Incentive;
 import com.jpmc.midascore.entity.TransactionRecord;
 import com.jpmc.midascore.entity.UserRecord;
 import com.jpmc.midascore.repository.TransactionRecordRepository;
@@ -16,10 +17,12 @@ public class TransactionListener {
     private static final Logger logger = LoggerFactory.getLogger(TransactionListener.class);
     private final UserRepository userRepository;
     private final TransactionRecordRepository transactionRecordRepository;
+    private final IncentiveClient incentiveClient;
 
-    public TransactionListener(UserRepository userRepository, TransactionRecordRepository transactionRecordRepository) {
+    public TransactionListener(UserRepository userRepository, TransactionRecordRepository transactionRecordRepository, IncentiveClient incentiveClient) {
         this.userRepository = userRepository;
         this.transactionRecordRepository = transactionRecordRepository;
+        this.incentiveClient = incentiveClient;
     }
 
     @KafkaListener(topics = "${general.kafka-topic}", groupId = "midas-core")
@@ -34,9 +37,17 @@ public class TransactionListener {
             return;
         }
 
+        Incentive incentive = incentiveClient.getIncentive(transaction);
+        float incentiveAmount = incentive == null ? 0 : incentive.getAmount();
         sender.setBalance(sender.getBalance() - transaction.getAmount());
-        recipient.setBalance(recipient.getBalance() + transaction.getAmount());
-        transactionRecordRepository.save(new TransactionRecord(sender, recipient, transaction.getAmount()));
-        logger.info("Processed transaction: {}", transaction);
+        recipient.setBalance(recipient.getBalance() + transaction.getAmount() + incentiveAmount);
+        transactionRecordRepository.save(new TransactionRecord(sender, recipient, transaction.getAmount(), incentiveAmount));
+        logger.info(
+                "Processed transaction: {}, incentive={}, senderBalance={}, recipientBalance={}",
+                transaction,
+                incentiveAmount,
+                sender.getBalance(),
+                recipient.getBalance()
+        );
     }
 }
